@@ -1,0 +1,21 @@
+:root { color-scheme: dark light; font-family: system-ui,sans-serif; color:var(--ls-primary-text-color,#ddd); }
+* { box-sizing:border-box; }
+body { margin:0; background:transparent; }
+#app { width:min(1080px,94vw); margin:3vh auto; background:var(--ls-primary-background-color,#1a1a1a); border:1px solid var(--ls-border-color,#444); border-radius:10px; box-shadow:0 12px 48px #0005; }
+header,footer { display:flex; align-items:center; gap:12px; padding:16px 22px; }
+header { border-bottom:1px solid var(--ls-border-color,#444); } header h2 { flex:1; margin:0; font-size:18px; }
+section { padding:12px 22px 18px; } h3 { font-size:14px; margin:0; }
+.row { display:grid; grid-template-columns:170px 1fr; align-items:center; gap:16px; padding:7px 0; font-size:13px; }
+label,summary,.heading span,#status { color:var(--ls-secondary-text-color,#aaa); font-size:12px; }
+details { margin:8px 0 14px; } summary { cursor:pointer; }
+input,button { min-width:0; font:inherit; color:inherit; border:1px solid var(--ls-border-color,#444); border-radius:4px; background:var(--ls-secondary-background-color,#242424); padding:6px 8px; }
+input { width:100%; font-size:13px; } input[type=checkbox] { width:auto; }
+button { cursor:pointer; font-size:13px; } button:hover { background:var(--ls-quaternary-background-color,#333); }
+input:focus,button:focus-visible { outline:2px solid var(--ls-link-text-color,#aaa); outline-offset:1px; }
+.heading { display:flex; align-items:center; gap:14px; margin:18px 0 10px; } .heading span { flex:1; }
+.table-scroll { max-height:46vh; overflow:auto; } table { width:100%; border-collapse:collapse; font-size:13px; table-layout:fixed; }
+th { color:var(--ls-secondary-text-color,#aaa); text-align:left; font-size:12px; font-weight:500; position:sticky; top:0; background:var(--ls-primary-background-color,#1a1a1a); }
+th,td { padding:5px; border-bottom:1px solid var(--ls-border-color,#444); } th:first-child { width:38px; } th:nth-child(2) { width:17%; } th:nth-child(3) { width:28%; } th:last-child { width:36px; }
+td:nth-child(4) input { font-family:ui-monospace,monospace; } td button { padding:4px 7px; }
+.secondary { margin-top:12px; } footer { border-top:1px solid var(--ls-border-color,#444); } #status { flex:1; }
+.primary { background:var(--ls-primary-text-color,#ddd); color:var(--ls-primary-background-color,#111); }
