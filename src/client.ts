@@ -1,25 +1,29 @@
 import type { RunRequest, RunSnapshot } from './processes';
-export interface Connection { helperUrl: string; helperToken: string }
+import type { Connection } from './protocol';
+export type { Connection } from './protocol';
 export interface RunState extends Omit<RunSnapshot, 'state' | 'reset'> { state: RunSnapshot['state'] | 'idle' | 'starting' }
 export const busy = (state: RunState) => ['starting', 'running', 'stopping'].includes(state.state);
 const idle = (): RunState => ({ id: '', state: 'idle', output: '', offset: 0, inputOpen: false, exitCode: null, signal: null, error: null });
+class HelperError extends Error {
+  constructor(message: string, readonly code?: string) { super(message); }
+}
 export class Client {
   private states = new Map<string, RunState>();
   private listeners = new Map<string, Set<(state: RunState) => void>>();
   private timers = new Map<string, ReturnType<typeof setTimeout>>();
   private closed = false;
-  constructor(readonly connection: () => Connection) {}
+  constructor(readonly connection: () => Connection | Promise<Connection>) {}
   async request(path: string, method = 'GET', data?: unknown): Promise<any> {
-    const connection = this.connection();
+    const connection = await this.connection();
     const url = new URL(connection.helperUrl);
     if (url.protocol !== 'http:' || url.hostname !== '127.0.0.1' || url.username || url.password) throw new Error('Use the local helper address http://127.0.0.1:PORT.');
-    if (!connection.helperToken) throw new Error('Connect the local helper first. Run npm run setup in the plugin directory.');
+    if (!connection.helperToken) throw new Error('Enable automatic startup in Executable Snippets: Settings.');
     let response: Response;
     try { response = await fetch(url.origin + path, { method, headers: { Authorization: `Bearer ${connection.helperToken}`, 'Content-Type': 'application/json' },
       ...(data === undefined ? {} : { body: JSON.stringify(data) }), signal: AbortSignal.timeout(5000) }); }
-    catch { throw new Error('Helper unavailable. Run npm run setup in the plugin directory.'); }
+    catch { throw new Error('The window’s helper is unavailable. Try Run again to reconnect.'); }
     const result = await response.json();
-    if (!response.ok) throw new Error(result.error || `Helper returned ${response.status}.`);
+    if (!response.ok) throw new HelperError(result.error || `Helper returned ${response.status}.`, result.code);
     return result;
   }
   get(key: string) { return this.states.get(key) || idle(); }
@@ -54,7 +58,13 @@ export class Client {
     try {
       const state = this.get(key);
       this.merge(key, await this.request(`/runs/${state.id}?offset=${state.offset}`));
-    } catch (error) { this.get(key).error = `${(error as Error).message} The process may still be running.`; this.notify(key); interval = 2000; }
+    } catch (error) {
+      const state = this.get(key);
+      if (error instanceof HelperError && error.code === 'RUN_NOT_FOUND') {
+        state.state = 'stopped'; state.inputOpen = false; state.error = 'The helper restarted. This process has stopped.';
+      } else { state.error = `${(error as Error).message} The process may still be running.`; interval = 2000; }
+      this.notify(key);
+    }
     if (busy(this.get(key)) && !this.closed) this.timers.set(key, setTimeout(() => void this.poll(key), interval));
   }
   async input(key: string, text: string, end = false) { await this.request(`/runs/${this.get(key).id}/input`, 'POST', { text, end }); }

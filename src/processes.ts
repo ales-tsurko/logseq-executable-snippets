@@ -14,6 +14,7 @@ export interface RunSnapshot {
 }
 interface Job { child: ChildProcessWithoutNullStreams; owner: string; output: string; base: number; snapshot: Omit<RunSnapshot, 'output' | 'offset' | 'reset'> }
 export class Processes {
+  private closed = false;
   readonly jobs = new Map<string, Job>();
   readonly maxOutput = 200_000;
   async start(request: RunRequest): Promise<RunSnapshot> {
@@ -23,12 +24,19 @@ export class Processes {
     const expandHome = (s: string) => s === '~' ? homedir() : s.startsWith('~/') ? resolve(homedir(), s.slice(2)) : s;
     const directory = resolve(expandHome(String(request.directory || '~')));
     if (!(await stat(directory)).isDirectory()) throw new Error('The working directory is not a directory.');
+    if (this.closed) throw new Error('The helper is shutting down.');
     if ([...this.jobs.values()].filter(j => ['running', 'stopping'].includes(j.snapshot.state)).length >= 8) throw new Error('Eight snippets are already running. Stop one before starting another.');
     if ([...this.jobs.values()].some(j => j.owner === request.owner && ['running', 'stopping'].includes(j.snapshot.state))) throw new Error('This snippet is already running.');
     let [program, args] = commandArguments(request.command, request.snippet);
     program = expandHome(program);
+    const env: NodeJS.ProcessEnv = { ...process.env, TERM: 'dumb', NO_COLOR: '1', PYTHONUNBUFFERED: '1' };
+    delete env.ELECTRON_RUN_AS_NODE;
+    delete env.NODE_OPTIONS;
+    if (process.versions.electron && ['node', 'nodejs'].includes(program)) {
+      program = process.execPath; env.ELECTRON_RUN_AS_NODE = '1';
+    }
     const child = spawn(program, args, { cwd: directory, detached: true, shell: false,
-      env: { ...process.env, TERM: 'dumb', NO_COLOR: '1', PYTHONUNBUFFERED: '1' }, stdio: ['pipe', 'pipe', 'pipe'] });
+      env, stdio: ['pipe', 'pipe', 'pipe'] });
     const id = randomUUID();
     const job: Job = { child, owner: request.owner, output: '', base: 0, snapshot: { id, state: 'running', inputOpen: true, exitCode: null, signal: null, error: null } };
     this.jobs.set(id, job);
@@ -74,6 +82,7 @@ export class Processes {
     setTimeout(() => kill('SIGKILL'), 1000).unref();
   }
   async close() {
+    this.closed = true;
     for (const id of this.jobs.keys()) this.stop(id);
     await new Promise(resolve => setTimeout(resolve, 1100));
   }

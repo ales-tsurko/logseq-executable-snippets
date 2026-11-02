@@ -1,7 +1,6 @@
 import { DEFAULT_TEMPLATES, normalizeTemplates, type RuntimeTemplate } from './templates';
-import type { Connection } from './client';
-export interface Options extends Connection { runtimes: RuntimeTemplate[]; defaultDirectory: string }
-export function showSettings(api: any, value: Options, save: (value: Options) => void, test: (connection: Connection) => Promise<unknown>) {
+export interface Options { runtimes: RuntimeTemplate[]; defaultDirectory: string }
+export function showSettings(api: any, value: Options, save: (value: Options) => void, test: () => Promise<unknown>, enable: () => Promise<unknown>) {
   const app = document.getElementById('app')!;
   const draft = structuredClone(value);
   const esc = (s: unknown) => String(s).replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]!));
@@ -9,8 +8,9 @@ export function showSettings(api: any, value: Options, save: (value: Options) =>
   function draw() {
     app.innerHTML = `<header><h2>Executable Snippets</h2><button id="close" aria-label="Close">×</button></header>
       <section><div class="row"><label for="directory">Default directory</label><input id="directory" value="${esc(draft.defaultDirectory)}" placeholder="~"></div>
-      <details><summary>Helper connection</summary><div class="row"><label for="helper-url">Address</label><input id="helper-url" value="${esc(draft.helperUrl)}"></div>
-      <div class="row"><label for="helper-token">Connection token</label><input type="password" autocomplete="off" id="helper-token" value="${esc(draft.helperToken)}"></div></details>
+      <details><summary>Automatic startup</summary><p>The helper uses Logseq’s bundled Node.js. Each window owns its helper and scripts.</p>
+      <p>Enable once to add <code>env</code> to Logseq’s command allowlist. This permits launching local programs through Logseq’s internal command runner.</p>
+      <button id="enable">Enable automatic startup</button></details>
       <div class="heading"><h3>Commands</h3><span>Use $ once for the snippet.</span><button id="add">Add command</button></div>
       <div class="table-scroll"><table><thead><tr><th>On</th><th>Name</th><th>Code languages</th><th>Command</th><th></th></tr></thead><tbody>
       ${draft.runtimes.map((r, i) => `<tr><td><input type="checkbox" data-field="enabled" data-row="${i}" aria-label="Enable ${esc(r.name)}" ${r.enabled ? 'checked' : ''}></td>
@@ -22,8 +22,6 @@ export function showSettings(api: any, value: Options, save: (value: Options) =>
       <footer><span id="status"></span><button id="test">Test connection</button><button id="save" class="primary">Apply settings</button></footer>`;
     document.getElementById('close')!.onclick = () => api.hideMainUI();
     input('directory').oninput = () => { draft.defaultDirectory = input('directory').value; };
-    input('helper-url').oninput = () => { draft.helperUrl = input('helper-url').value; };
-    input('helper-token').oninput = () => { draft.helperToken = input('helper-token').value; };
     for (const el of app.querySelectorAll<HTMLInputElement>('[data-field]')) el.onchange = () => {
       const row = draft.runtimes[Number(el.dataset.row)]!;
       switch (el.dataset.field) {
@@ -40,7 +38,9 @@ export function showSettings(api: any, value: Options, save: (value: Options) =>
       try { draft.runtimes = normalizeTemplates(draft.runtimes); save(draft); document.getElementById('status')!.textContent = 'Settings saved.'; }
       catch (error) { document.getElementById('status')!.textContent = (error as Error).message; }
     };
-    document.getElementById('test')!.onclick = () => { void test(draft).then(() => { document.getElementById('status')!.textContent = 'Helper connected.'; }).catch(error => { document.getElementById('status')!.textContent = error.message; }); };
+    const connect = (action: () => Promise<unknown>) => { void action().then(() => { document.getElementById('status')!.textContent = 'Helper connected. Automatic startup is enabled.'; }).catch(error => { document.getElementById('status')!.textContent = error.message; }); };
+    document.getElementById('test')!.onclick = () => connect(test);
+    document.getElementById('enable')!.onclick = () => connect(enable);
   }
   draw(); api.showMainUI({ autoFocus: true });
 }

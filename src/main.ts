@@ -2,6 +2,7 @@ declare const logseq: any;
 import { Client, busy, type RunState } from './client';
 import { normalizeTemplates, runtimeFor, type RuntimeTemplate } from './templates';
 import { showSettings, type Options } from './settings';
+import { ManagedRuntime } from './host-runtime';
 
 const api: any = logseq;
 const DIRECTORY = 'plugin.property.logseq-executable-snippets/directory';
@@ -15,13 +16,13 @@ let scanTimer: ReturnType<typeof setTimeout> | undefined;
 const subscriptions: Array<() => void> = [];
 const mounted = new Map<HTMLElement, { uuid: string; language: string; remove: () => void }>();
 const checked = new WeakMap<HTMLElement, string>();
-const client = new Client(() => options);
+let managed: ManagedRuntime;
+const client = new Client(() => managed.ensure());
 const uuidPattern = /^[a-f0-9-]{36}$/i;
 const errorText = (error: unknown) => error && typeof error === 'object' ? ('message' in error ? String(error.message) : JSON.stringify(error)) : String(error);
 const report = (error: unknown) => { console.error('[Executable Snippets]', error); void api.UI.showMsg(errorText(error), 'error'); };
 function readOptions(settings: any): Options {
-  return { runtimes: normalizeTemplates(settings?.runtimes), defaultDirectory: String(settings?.defaultDirectory || '~'),
-    helperUrl: String(settings?.helperUrl || 'http://127.0.0.1:19848'), helperToken: String(settings?.helperToken || '') };
+  return { runtimes: normalizeTemplates(settings?.runtimes), defaultDirectory: String(settings?.defaultDirectory || '~') };
 }
 async function currentGraphKey() {
   const graph = await api.App.getCurrentGraph();
@@ -159,7 +160,7 @@ async function theme() {
 async function settings() {
   await theme();
   showSettings(api, options, next => { api.updateSettings(next); options = readOptions(next); scheduleScan(true); },
-    connection => new Client(() => connection).request('/health'));
+    () => managed.ensure(), () => managed.enable());
 }
 async function configureSnippet(uuid: string) {
   await theme();
@@ -191,10 +192,12 @@ async function main() {
   if (!(await api.App.checkCurrentIsDbGraph())) throw new Error('Executable Snippets currently supports Logseq DB graphs.');
   host = api.Experiments.ensureHostScope(); doc = host.document;
   options = readOptions(api.settings); graphKey = await currentGraphKey();
+  managed = new ManagedRuntime(api, host);
+  void managed.ensure().catch(report);
   api.setMainUIInlineStyle({ position: 'fixed', inset: '0', zIndex: 1000, backgroundColor: 'rgba(0,0,0,.25)' });
   api.provideModel({ openSettings: () => void settings().catch(report) });
   api.useSettingsSchema([
-    { key: 'configure', type: 'button', default: null, title: 'Executable Snippets', description: 'Commands and local helper connection.', buttonText: 'Open snippet settings', buttonAction: 'openSettings' },
+    { key: 'configure', type: 'button', default: null, title: 'Executable Snippets', description: 'Commands and automatic startup.', buttonText: 'Open snippet settings', buttonAction: 'openSettings' },
   ]);
   api.App.registerCommandPalette({ key: 'settings', label: 'Executable Snippets: Settings' }, () => void settings().catch(report));
   api.App.registerCommandPalette({ key: 'stop-all', label: 'Executable Snippets: Stop all processes' }, () => { void client.request('/stop-all', 'POST', {}).catch(report); });
@@ -222,7 +225,10 @@ async function main() {
   subscriptions.push(api.onSettingsChanged((value: any) => { try { options = readOptions(value); scheduleScan(true); } catch (error) { report(error); } }));
   subscriptions.push(api.DB.onChanged((event: any) => { if (event.txData?.some((row: any[]) => String(row[1]).includes('plugin.property.logseq-executable-snippets/'))) scheduleScan(true); }));
   document.addEventListener('keydown', event => { if (event.key === 'Escape') { event.stopPropagation(); api.hideMainUI(); } });
-  api.beforeunload(() => { disposed = true; clearTimeout(scanTimer); subscriptions.forEach(off => off?.()); for (const instance of mounted.values()) instance.remove(); mounted.clear(); client.close(); });
+  const stop = () => { void managed.stop(); };
+  host.addEventListener('pagehide', stop);
+  subscriptions.push(() => host.removeEventListener('pagehide', stop));
+  api.beforeunload(async () => { disposed = true; clearTimeout(scanTimer); subscriptions.forEach(off => off?.()); for (const instance of mounted.values()) instance.remove(); mounted.clear(); client.close(); await managed.stop(); });
   scheduleScan();
 }
 api.ready(main).catch(report);
